@@ -1,21 +1,57 @@
 globals
 [
-  grid-x               ;; the amount of fields of different crops vertically
-  grid-y               ;; the amount of fields of different crops horizontally
+  grid-x               ;; the amount of fields of different crops horizontally
+  grid-y               ;; the amount of fields of different crops vertically
   grid-h               ;; the amount of plots in each field vertically
   grid-l               ;; the amount of plots in each field horizontally
   alpha
 
+  px ;; plot length
+  py ;; plot height
+  mx ;; field lengh
+  my ;; field height
+  counter_id
+  reference ;; patch in road to be a reference to goal
+  ticksperday
+
   ;; patch agentsets
   marketplaces  ;; agentset containing the patches that are marketplaces
-  roads         ;; agentset containing the patches that are roads/
+  roads         ;; agentset containing the patches that are roads
+  days
+  total_trade
+  total_talk
+  total_interaction
+  total_quantity
+  av_talk
+  av_interaction
+  av_trade
+  av_quantity
+  av_daily_sold
+
+  crop1_init
+  ncrops
+  collectable
+  dead-bound
+
+  global_cropssold
 ]
 turtles-own
 [
-  crop1
-  crop2
-  crop3
-  crop4
+  crop1_sold
+  crop1_quantity
+  direction
+  partner
+  active?
+  socialization
+  counter
+  id
+  my-plot
+  my-plot-reference
+  goal
+  marketplace-time
+  atmarketplace
+  crops_quantity
+  crops_sold
 ]
 
 patches-own
@@ -23,10 +59,13 @@ patches-own
   marketplace?
   road?
   my-crop
+  alive-time
+  my-turtle
 ]
 
 to setup
   clear-all
+
   setup-globals
   setup-patches
 
@@ -34,10 +73,81 @@ to setup
   [
     setup-agents
   ]
+
+  assign_patches
+
+  ask turtles [
+    move-to one-of my-plot
+  ]
+
+  reset-ticks
 end
 
 to go
+  if (ticks mod ticksperday = 0)
+  [
+    if count turtles = 0 [
+      stop
+    ]
+    set days days + 1
+    set av_trade total_trade / count turtles
+    set av_talk total_talk / count turtles
+    set av_interaction total_interaction / count turtles
+    show global_cropssold
+    set av_daily_sold global_cropssold
+    set global_cropssold n-values ncrops [0] ;; not working
 
+    ask turtles [
+      balance
+    ]
+  ]
+  go-turtles
+  go-patches
+
+tick
+end
+
+to go-turtles
+  ask turtles
+  [
+    if partner = nobody and active? = true
+    [
+      set partner one-of turtles in-radius 1 with
+        [partner = nobody and active? = true and who != [who] of myself] ;; and who != [who] of lastpartner
+    ]
+
+    if partner != nobody
+    [
+
+      ask partner [
+        set partner myself
+      ]
+
+      interact
+
+      ask partner [
+        set partner nobody
+      ]
+      set partner nobody
+    ]
+    if (counttypes < 2)[ ;; needs to get more crops
+      set goal "home"
+    ]
+    move
+  ]
+
+end
+
+to go-patches
+  ask patches [
+    ifelse (my-crop = -1 or alive-time >= dead-bound) [
+      set my-crop random ncrops
+      set alive-time 0
+    ]
+    [
+      set alive-time (alive-time + 1)
+    ]
+  ]
 end
 
 to setup-globals
@@ -46,6 +156,18 @@ to setup-globals
   set grid-h plotsperfield-y
   set grid-l plotsperfield-x
   set alpha marketplace-size
+  set counter_id 0
+  set ticksperday ticks/day
+  set days 0
+  set total_trade 0
+  set total_talk 0
+  set total_quantity 0
+  set crop1_init 10
+  set ncrops 4
+  set collectable 100
+  set dead-bound 300
+  set global_cropssold n-values ncrops [0]
+
 
 end
 
@@ -54,15 +176,16 @@ to setup-patches
   [
     set marketplace? false
     set road? false
+    set road? false
     set pcolor green
-
+    set my-crop random ncrops
+    set alive-time 0
   ]
 
-  let px (world-width / (grid-l * grid-x))
-  let py (world-height / (grid-h * grid-y))
-  let mx (world-width / grid-x)
-  let my (world-height / grid-y)
-
+  set px (world-width / (grid-l * grid-x))
+  set py (world-height / (grid-h * grid-y))
+  set mx (world-width / grid-x)
+  set my (world-height / grid-y)
 
   set roads patches with
   [((floor(pxcor mod (px))) = 0 ) or
@@ -75,15 +198,289 @@ to setup-patches
   ask roads [set pcolor red]
   ask marketplaces [set pcolor blue]
 
+  set reference one-of roads
+
 end
 
-to setup-agents
-  set crop1 2
-  set crop2 2
-  set crop3 2
-  set crop4 2
+to setup-agents ;; turtle procedure
+  set crop1_quantity crop1_init
+  set crop1_sold 0
+  set id counter_id
+  set counter_id counter_id + 1
+  set active? true
+  set socialization 0
+  set counter 0
+  set partner nobody
+  set goal "leave plot"
+  set atmarketplace 0
+  set crops_quantity n-values ncrops [crop1_init]
+  set crops_sold n-values ncrops [0]
 
-  move-to one-of patches with [not any? turtles-on self]
+end
+
+to interact
+
+  set counter counter + 1
+  set total_interaction total_interaction + 1
+
+  ifelse random 2 = 0
+  [
+    set total_talk total_talk + 1
+    talk
+  ]
+  [
+    set total_trade total_trade + 1
+    trade
+  ]
+
+end
+
+to talk
+  set socialization socialization + 10
+  ;;  set [socialization] of partner [socialization] of partner + 10
+  ask partner [
+    set socialization socialization + 10
+  ]
+
+end
+
+to trade
+  set marketplace-time marketplace-time + 10
+  set socialization socialization + 2
+  ask partner [
+    set socialization socialization + 2
+  ]
+
+  let temp 0
+  let i -1
+  (foreach crops_quantity ([crops_quantity] of partner) [
+    [x y] -> if (x > 1 and y = 0) or (x = 0 and y > 1) [set i temp]
+    set temp temp + 1
+  ])
+
+  if i != -1 [
+    let quantity item i crops_quantity
+    ifelse (quantity > 0)[ ;; i'm the one selling
+      ;; reduce quantity from my crop
+      set crops_quantity replace-item i crops_quantity (quantity - 1)
+
+      ;; add to other's crop
+      ask partner[
+        set crops_quantity replace-item i crops_quantity 1
+      ]
+    ]
+    [
+      set quantity item i [crops_quantity] of partner
+      ;; add one to my crop i
+      set crops_quantity replace-item i crops_quantity 1
+
+      ;; reduce quantity from other's crop
+      ask partner[
+        set crops_quantity replace-item i crops_quantity (quantity - 1)
+      ]
+    ]
+    item i global_cropssold + 1
+    set global_cropssold replace-item i global_cropssold (item i global_cropssold + 1)
+    item i global_cropssold + 1
+  ]
+
+end
+
+to assign_patches
+  let x 0
+  let y 0
+  let tid 0
+
+  foreach [who] of turtles
+  [
+    ask patches with [not member? self roads
+      and not member? self marketplaces
+      and pxcor > x and pxcor < x + px and pycor > y and pycor < y + py]
+    [ set my-turtle tid ]
+
+    ask turtles with [id = tid]
+    [
+      set my-plot patches with [not member? self roads
+      and not member? self marketplaces
+      and pxcor > x and pxcor < x + px and pycor > y and pycor < y + py]
+      set my-plot-reference one-of my-plot
+    ]
+
+    set tid tid + 1
+
+    ifelse x + px < world-width
+    [
+      set x x + px
+    ]
+    [
+      set x 0
+      set y y + py
+    ]
+  ]
+
+end
+
+to move-turtles-home
+  ask turtles[
+    move-to one-of my-plot
+    set partner nobody
+    set goal "leave plot"
+    set counter 0
+    set crop1_quantity crop1_sold
+    set crop1_sold 0
+    show crop1_quantity
+    if crop1_quantity = 0 [
+      die
+    ]
+  ]
+end
+
+to-report counttypes
+  let types 0
+  foreach crops_quantity [ x -> if x != 0 [set types types + 1] ]
+  report types
+end
+
+to consume-crop
+  let index 0
+  foreach crops_quantity [ x ->
+    if random 2 = 0 [
+      if ( item index crops_quantity > 0)[
+        set crops_quantity replace-item index crops_quantity (item index crops_quantity - 1)
+      ]
+      set index index + 1
+    ]
+  ]
+end
+
+to balance
+;;  set partner nobody
+;;  set lastpartner self
+;;  set goal "leave plot"
+  consume-crop
+
+  set counter 0
+  ;; check whether agent has two different types of crop
+
+  ;; TODO have this magic number as global
+  if (counttypes < 2)[
+    die
+  ]
+end
+
+to collect
+  let collected n-values ncrops [0]
+  ;;replace-item index list value
+  ;;item i crops_quantity
+
+  foreach my-plot [ ploti ->
+    if [alive-time] of ploti >= collectable
+    [
+      set collected replace-item my-crop collected (item my-crop collected)
+    ]
+  ]
+
+  let index 0
+  (foreach crops_quantity collected [ [old new] ->
+    set crops_quantity replace-item index crops_quantity (old + new)
+    set index index + 1
+  ])
+end
+
+to move
+  ifelse goal = "nothing" [
+  ]
+  [
+    ;; wants to go home
+    if goal = "home" [
+      show "home"
+      if (member? patch-here my-plot) [ ;; is home already
+        collect
+        set goal "leave plot"
+      ]
+
+      if (any? neighbors with [my-turtle = [id] of myself]) [ ;; is near home
+        face min-one-of neighbors [distance [my-plot-reference] of myself]
+      ]
+
+      if (member? patch-here marketplaces)[ ;; is at a marketplace
+        let choices neighbors with [pcolor = red or pcolor = blue]
+        face min-one-of choices [distance min-one-of roads [distance myself]]
+      ]
+
+      if (member? patch-here roads) [ ;; is in a road
+        let choices neighbors with [pcolor = red or pcolor = blue]
+        face min-one-of choices [distance [my-plot-reference] of myself]
+      ]
+    ]
+
+    ;; wants to leave home
+    if goal = "leave plot"
+    [ifelse member? patch-here my-plot ;; is still at home
+      [
+        let choices neighbors
+        face min-one-of choices [distance [reference] of myself]
+      ]
+      [ ;; has left
+        set goal "socialize"
+        ifelse (floor(pxcor mod (px)) = 0 ) and (floor(pycor mod (py)) = 0 )
+        [
+          set heading one-of [0 90 180 270]
+        ]
+        [
+          ifelse floor(pxcor mod (px)) = 0 ;; horizontal
+          [ set heading one-of [0 180] ]
+          [ set heading one-of [90 270] ]
+        ]
+      ]
+    ]
+
+    if goal = "marketplace"[ ;; wants to go to a marketplace
+      ifelse (not member? patch-here marketplaces)[
+        let choices neighbors with [pcolor = red or pcolor = blue]
+        if length choices = 0 [
+          set choices neighbors
+        ]
+        face min-one-of choices [distance min-one-of marketplaces [distance myself]]
+      ]
+      [
+        set goal "stay-marketplace"
+        set marketplace-time 10
+      ]
+    ]
+
+    if goal = "socialize" and (not member? patch-here my-plot)[
+      ifelse member? patch-here marketplaces
+      [ ;; in marketplace
+        if atmarketplace = 0 [ ;; just arrived and must stay
+          set atmarketplace 1
+          set marketplace-time 10
+        ]
+        ifelse marketplace-time > 0 [
+          set marketplace-time marketplace-time - 1
+          face one-of neighbors with [pcolor = blue]
+        ]
+        [ ;; should leave and find a road
+          show "leave"
+          move-to min-one-of roads [distance min-one-of roads [distance myself]] ;; go to road
+          let choices neighbors with [pcolor = red]
+          face min-one-of choices [distance myself]
+          set atmarketplace 0
+        ]
+
+      ]
+      [
+        if (floor(pxcor mod (px)) = 0 ) and (floor(pycor mod (py)) = 0 )[
+          set heading (heading + one-of [0 90 270] mod 360)
+        ]
+      ]
+    ]
+
+
+    fd 1
+
+  ]
+
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -107,8 +504,8 @@ GRAPHICS-WINDOW
 64
 0
 64
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -137,7 +534,7 @@ BUTTON
 123
 NIL
 go
-NIL
+T
 1
 T
 OBSERVER
@@ -180,14 +577,14 @@ HORIZONTAL
 SLIDER
 15
 250
-192
+185
 283
 marketplace-size
 marketplace-size
 0
-4
+8
 2.0
-1
+2
 1
 NIL
 HORIZONTAL
@@ -195,14 +592,14 @@ HORIZONTAL
 SLIDER
 15
 295
-187
+107
 328
 plotsperfield-x
 plotsperfield-x
-1
-8
-4.0
-1
+2
+4
+2.0
+2
 1
 NIL
 HORIZONTAL
@@ -210,17 +607,67 @@ HORIZONTAL
 SLIDER
 15
 345
-187
+107
 378
 plotsperfield-y
 plotsperfield-y
-1
-8
+2
+4
 2.0
-1
+2
 1
 NIL
 HORIZONTAL
+
+PLOT
+620
+10
+780
+160
+Turtles alive
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot count turtles"
+
+INPUTBOX
+20
+65
+80
+125
+ticks/day
+100.0
+1
+0
+Number
+
+PLOT
+620
+170
+780
+320
+Av sold
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot item 0 av_daily_sold / count turtles"
+"pen-1" 1.0 0 -7500403 true "" "plot item 1 av_daily_sold / count turtles"
+"pen-2" 1.0 0 -2674135 true "" "plot item 2 av_daily_sold / count turtles"
+"pen-3" 1.0 0 -955883 true "" "plot item 3 av_daily_sold / count turtles"
 
 @#$#@#$#@
 ## WHAT IS IT?
