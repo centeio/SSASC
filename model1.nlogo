@@ -8,7 +8,7 @@ globals
 
   px ;; plot length
   py ;; plot height
-  mx ;; field lengh
+  mx ;; field length
   my ;; field height
   counter_id
   reference ;; patch in road to be a reference to goal
@@ -30,8 +30,6 @@ globals
 
   crop1_init
   ncrops
-  collectable
-  dead-bound
 
   global_cropssold
 ]
@@ -61,6 +59,8 @@ patches-own
   my-crop
   alive-time
   my-turtle
+  collectable
+  dead-bound
 ]
 
 to setup
@@ -130,7 +130,7 @@ to go-turtles
       ]
       set partner nobody
     ]
-    if (counttypes < 2)[ ;; needs to get more crops
+    if (counttypes < 3)[ ;; needs to get more crops
       set goal "home"
     ]
     move
@@ -162,10 +162,8 @@ to setup-globals
   set total_trade 0
   set total_talk 0
   set total_quantity 0
-  set crop1_init 10
-  set ncrops 4
-  set collectable 100
-  set dead-bound 300
+  set crop1_init 5
+  set ncrops typesofcrops
   set global_cropssold n-values ncrops [0]
 
 
@@ -180,6 +178,8 @@ to setup-patches
     set pcolor green
     set my-crop random ncrops
     set alive-time 0
+    set collectable (50 + random 100)
+    set dead-bound collectable + (50 + random 100)
   ]
 
   set px (world-width / (grid-l * grid-x))
@@ -254,34 +254,42 @@ to trade
   let temp 0
   let i -1
   (foreach crops_quantity ([crops_quantity] of partner) [
-    [x y] -> if (x > 1 and y = 0) or (x = 0 and y > 1) [set i temp]
+    [x y] -> if (x > 1 and y = 0) or (x = 0 and y > 1)
+    [
+      set i temp
+      if random 2 = 0 [stop]
+    ]
     set temp temp + 1
   ])
 
   if i != -1 [
-    let quantity item i crops_quantity
-    ifelse (quantity > 0)[ ;; i'm the one selling
+    let quantity floor (item i crops_quantity + item i [crops_quantity] of partner / 2)
+    set crops_quantity replace-item i crops_quantity quantity
+    ask partner[
+        set crops_quantity replace-item i crops_quantity quantity
+    ]
+
+   ;; ifelse (quantity > 0)[ ;; i'm the one selling
       ;; reduce quantity from my crop
-      set crops_quantity replace-item i crops_quantity (quantity - 1)
+   ;;   set crops_quantity replace-item i crops_quantity (quantity - 1)
 
       ;; add to other's crop
-      ask partner[
-        set crops_quantity replace-item i crops_quantity 1
-      ]
-    ]
-    [
-      set quantity item i [crops_quantity] of partner
+   ;;   ask partner[
+   ;;     set crops_quantity replace-item i crops_quantity 1
+   ;;   ]
+   ;; ]
+   ;; [
+   ;;   set quantity item i [crops_quantity] of partner
       ;; add one to my crop i
-      set crops_quantity replace-item i crops_quantity 1
+   ;;   set crops_quantity replace-item i crops_quantity 1
 
       ;; reduce quantity from other's crop
-      ask partner[
-        set crops_quantity replace-item i crops_quantity (quantity - 1)
-      ]
-    ]
-    item i global_cropssold + 1
-    set global_cropssold replace-item i global_cropssold (item i global_cropssold + 1)
-    item i global_cropssold + 1
+   ;;   ask partner[
+   ;;     set crops_quantity replace-item i crops_quantity (quantity - 1)
+   ;;   ]
+   ;; ]
+    show "selling"
+    set global_cropssold replace-item i global_cropssold (item i global_cropssold + quantity)
   ]
 
 end
@@ -373,10 +381,11 @@ to collect
   ;;replace-item index list value
   ;;item i crops_quantity
 
-  foreach my-plot [ ploti ->
-    if [alive-time] of ploti >= collectable
+  ask my-plot [
+    if alive-time >= collectable
     [
-      set collected replace-item my-crop collected (item my-crop collected)
+      set collected replace-item my-crop collected (item my-crop collected + 1)
+      set my-crop -1
     ]
   ]
 
@@ -391,24 +400,30 @@ to move
   ifelse goal = "nothing" [
   ]
   [
+    let thisturtle [id] of self
     ;; wants to go home
     if goal = "home" [
-      show "home"
       if (member? patch-here my-plot) [ ;; is home already
         collect
         set goal "leave plot"
       ]
 
       if (any? neighbors with [my-turtle = [id] of myself]) [ ;; is near home
-        face min-one-of neighbors [distance [my-plot-reference] of myself]
+        let choice min-one-of patches with [my-turtle = thisturtle] [distance min-one-of patches with [my-turtle = thisturtle] [distance myself]]
+        move-to choice
+        ;;face one-of neighbors with [my-turtle = [id] of myself]
       ]
 
       if (member? patch-here marketplaces)[ ;; is at a marketplace
-        let choices neighbors with [pcolor = red or pcolor = blue]
-        face min-one-of choices [distance min-one-of roads [distance myself]]
+        show "leaving marketplace"
+        move-to min-one-of (roads with [pcolor = red]) [distance min-one-of (roads with [pcolor = red]) [distance myself]] ;; go to road
+        let choices neighbors with [pcolor = red]
+
+        face min-one-of choices [distance myself]
+        set atmarketplace 0
       ]
 
-      if (member? patch-here roads) [ ;; is in a road
+      if (member? patch-here roads with [pcolor = red]) [ ;; is in a road
         let choices neighbors with [pcolor = red or pcolor = blue]
         face min-one-of choices [distance [my-plot-reference] of myself]
       ]
@@ -419,7 +434,7 @@ to move
     [ifelse member? patch-here my-plot ;; is still at home
       [
         let choices neighbors
-        face min-one-of choices [distance [reference] of myself]
+        face min-one-of choices [distance min-one-of roads [distance myself]]
       ]
       [ ;; has left
         set goal "socialize"
@@ -438,7 +453,7 @@ to move
     if goal = "marketplace"[ ;; wants to go to a marketplace
       ifelse (not member? patch-here marketplaces)[
         let choices neighbors with [pcolor = red or pcolor = blue]
-        if length choices = 0 [
+        if count choices = 0 [
           set choices neighbors
         ]
         face min-one-of choices [distance min-one-of marketplaces [distance myself]]
@@ -458,12 +473,19 @@ to move
         ]
         ifelse marketplace-time > 0 [
           set marketplace-time marketplace-time - 1
-          face one-of neighbors with [pcolor = blue]
+          let choices neighbors with [pcolor = blue]
+          ifelse (count choices = 0)[
+            bk 1
+          ]
+          [
+            face one-of choices
+          ]
         ]
         [ ;; should leave and find a road
           show "leave"
-          move-to min-one-of roads [distance min-one-of roads [distance myself]] ;; go to road
+          move-to min-one-of (roads with [pcolor = red]) [distance min-one-of (roads with [pcolor = red]) [distance myself]] ;; go to road
           let choices neighbors with [pcolor = red]
+
           face min-one-of choices [distance myself]
           set atmarketplace 0
         ]
@@ -512,9 +534,9 @@ ticks
 
 BUTTON
 120
-35
+55
 192
-68
+88
 NIL
 setup
 NIL
@@ -583,7 +605,7 @@ marketplace-size
 marketplace-size
 0
 8
-2.0
+4.0
 2
 1
 NIL
@@ -668,6 +690,21 @@ PENS
 "pen-1" 1.0 0 -7500403 true "" "plot item 1 av_daily_sold / count turtles"
 "pen-2" 1.0 0 -2674135 true "" "plot item 2 av_daily_sold / count turtles"
 "pen-3" 1.0 0 -955883 true "" "plot item 3 av_daily_sold / count turtles"
+
+SLIDER
+20
+10
+192
+43
+typesofcrops
+typesofcrops
+1
+10
+4.0
+1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
