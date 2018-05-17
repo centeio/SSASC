@@ -30,6 +30,7 @@ globals
 
   crop1_init
   ncrops
+  crops_color
 
   global_cropssold
 ]
@@ -57,6 +58,7 @@ patches-own
   marketplace?
   road?
   my-crop
+  main-crop
   alive-time
   my-turtle
   collectable
@@ -139,14 +141,21 @@ to go-turtles
 end
 
 to go-patches
-  ask patches [
-    ifelse (my-crop = -1 or alive-time >= dead-bound) [
-      set my-crop random ncrops
+  ask patches with [not member? self roads and not member? self marketplaces] [
+    ifelse (alive-time >= dead-bound) [
       set alive-time 0
+      ifelse random 100 > prevailance [ ;; my crop with 90%
+        set my-crop random ncrops
+      ]
+      [
+        set my-crop main-crop
+      ]
     ]
     [
       set alive-time (alive-time + 1)
     ]
+
+    set pcolor item my-crop crops_color
   ]
 end
 
@@ -165,6 +174,7 @@ to setup-globals
   set crop1_init 5
   set ncrops typesofcrops
   set global_cropssold n-values ncrops [0]
+  set crops_color [133 123 113 102 97 85 135 131 24 46]
 
 
 end
@@ -176,7 +186,6 @@ to setup-patches
     set road? false
     set road? false
     set pcolor green
-    set my-crop random ncrops
     set alive-time 0
     set collectable (50 + random 100)
     set dead-bound collectable + (50 + random 100)
@@ -298,13 +307,38 @@ to assign_patches
   let x 0
   let y 0
   let tid 0
+  let cid random ncrops
+
+  ask patches with [member? self roads or member? self marketplaces]
+  [
+    set my-turtle -1
+    set my-crop -1
+    set main-crop -1
+  ]
 
   foreach [who] of turtles
   [
     ask patches with [not member? self roads
       and not member? self marketplaces
       and pxcor > x and pxcor < x + px and pycor > y and pycor < y + py]
-    [ set my-turtle tid ]
+    [
+      set my-turtle tid
+      ifelse perfield
+      [
+        set main-crop (2 * (floor (pycor / my)) + (floor (pxcor / mx)))
+
+      ]
+      [
+        set main-crop cid
+      ]
+      ifelse random 100 > prevailance [ ;; my crop with 90%
+        set my-crop random ncrops
+      ]
+      [
+        set my-crop main-crop
+      ]
+      set pcolor item my-crop crops_color
+    ]
 
     ask turtles with [id = tid]
     [
@@ -315,6 +349,7 @@ to assign_patches
     ]
 
     set tid tid + 1
+    set cid random ncrops
 
     ifelse x + px < world-width
     [
@@ -324,6 +359,7 @@ to assign_patches
       set x 0
       set y y + py
     ]
+
   ]
 
 end
@@ -382,10 +418,10 @@ to collect
   ;;item i crops_quantity
 
   ask my-plot [
-    if alive-time >= collectable
+    if alive-time >= collectable and alive-time < dead-bound
     [
       set collected replace-item my-crop collected (item my-crop collected + 1)
-      set my-crop -1
+      set alive-time dead-bound
     ]
   ]
 
@@ -590,7 +626,7 @@ nfields-y
 nfields-y
 1
 4
-2.0
+3.0
 1
 1
 NIL
@@ -700,11 +736,37 @@ typesofcrops
 typesofcrops
 1
 10
-4.0
+10.0
 1
 1
 NIL
 HORIZONTAL
+
+SLIDER
+15
+390
+187
+423
+prevailance
+prevailance
+1
+100
+100.0
+1
+1
+NIL
+HORIZONTAL
+
+SWITCH
+645
+340
+748
+373
+perfield
+perfield
+0
+1
+-1000
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -1048,7 +1110,7 @@ false
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.0.2
+NetLogo 6.0.3
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
