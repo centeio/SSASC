@@ -51,6 +51,9 @@ turtles-own
   atmarketplace
   crops_quantity
   crops_sold
+  preferences
+  best_marketplace
+  next_marketplace
 ]
 
 patches-own
@@ -63,6 +66,7 @@ patches-own
   my-turtle
   collectable
   dead-bound
+  my-field
 ]
 
 to setup
@@ -80,13 +84,15 @@ to setup
 
   ask turtles [
     move-to one-of my-plot
+    collect
+    set next_marketplace my-field
   ]
 
   reset-ticks
 end
 
 to go
-  if (ticks mod ticksperday = 0)
+  if (ticks > 0 and ticks mod ticksperday = 0)
   [
     if count turtles = 0 [
       stop
@@ -98,10 +104,10 @@ to go
     show global_cropssold
     set av_daily_sold global_cropssold
     set global_cropssold n-values ncrops [0] ;; not working
-
     ask turtles [
       balance
     ]
+
   ]
   go-turtles
   go-patches
@@ -132,8 +138,9 @@ to go-turtles
       ]
       set partner nobody
     ]
-    if (counttypes < 3)[ ;; needs to get more crops
+    if (counttypes >= 3)[ ;; can go home
       set goal "home"
+      set preferences replace-item next_marketplace preferences ((item next_marketplace preferences) + 1)
     ]
     move
   ]
@@ -144,7 +151,7 @@ to go-patches
   ask patches with [not member? self roads and not member? self marketplaces] [
     ifelse (alive-time >= dead-bound) [
       set alive-time 0
-      ifelse random 100 > prevailance [ ;; my crop with 90%
+      ifelse random 100 > prevalence [ ;; my crop with prevalence%
         set my-crop random ncrops
       ]
       [
@@ -174,7 +181,7 @@ to setup-globals
   set crop1_init 5
   set ncrops typesofcrops
   set global_cropssold n-values ncrops [0]
-  set crops_color [133 123 113 102 97 85 135 131 24 46]
+  set crops_color [133 123 113 102 97 35 135 131 24 46 1 52 16]
 
 
 end
@@ -186,9 +193,9 @@ to setup-patches
     set road? false
     set road? false
     set pcolor green
-    set alive-time 0
     set collectable (50 + random 100)
     set dead-bound collectable + (50 + random 100)
+    set alive-time random dead-bound
   ]
 
   set px (world-width / (grid-l * grid-x))
@@ -222,8 +229,9 @@ to setup-agents ;; turtle procedure
   set partner nobody
   set goal "leave plot"
   set atmarketplace 0
-  set crops_quantity n-values ncrops [crop1_init]
+  set crops_quantity n-values ncrops [0]
   set crops_sold n-values ncrops [0]
+  set preferences n-values (grid-x * grid-y) [0]
 
 end
 
@@ -254,7 +262,6 @@ to talk
 end
 
 to trade
-  set marketplace-time marketplace-time + 10
   set socialization socialization + 2
   ask partner [
     set socialization socialization + 2
@@ -263,7 +270,7 @@ to trade
   let temp 0
   let i -1
   (foreach crops_quantity ([crops_quantity] of partner) [
-    [x y] -> if (x > 1 and y = 0) or (x = 0 and y > 1)
+    [x y] -> if (y = 0 and x > 1) or (x = 0 and y > 1) ;; we should trade
     [
       set i temp
       if random 2 = 0 [stop]
@@ -272,31 +279,28 @@ to trade
   ])
 
   if i != -1 [
-    let quantity floor (item i crops_quantity + item i [crops_quantity] of partner / 2)
-    set crops_quantity replace-item i crops_quantity quantity
-    ask partner[
-        set crops_quantity replace-item i crops_quantity quantity
-    ]
+    set marketplace-time marketplace-time + 10
+    let quantity item i crops_quantity
 
-   ;; ifelse (quantity > 0)[ ;; i'm the one selling
+    ifelse (quantity > 0)[ ;; i'm the one selling
       ;; reduce quantity from my crop
-   ;;   set crops_quantity replace-item i crops_quantity (quantity - 1)
+      set crops_quantity replace-item i crops_quantity (quantity - 1)
 
       ;; add to other's crop
-   ;;   ask partner[
-   ;;     set crops_quantity replace-item i crops_quantity 1
-   ;;   ]
-   ;; ]
-   ;; [
-   ;;   set quantity item i [crops_quantity] of partner
-      ;; add one to my crop i
-   ;;   set crops_quantity replace-item i crops_quantity 1
+      ask partner[
+        set crops_quantity replace-item i crops_quantity 1
+      ]
+    ]
+    [
+      set quantity item i [crops_quantity] of partner
+   ;;    add one to my crop i
+      set crops_quantity replace-item i crops_quantity 1
 
       ;; reduce quantity from other's crop
-   ;;   ask partner[
-   ;;     set crops_quantity replace-item i crops_quantity (quantity - 1)
-   ;;   ]
-   ;; ]
+      ask partner[
+        set crops_quantity replace-item i crops_quantity (quantity - 1)
+      ]
+    ]
     show "selling"
     set global_cropssold replace-item i global_cropssold (item i global_cropssold + quantity)
   ]
@@ -318,6 +322,9 @@ to assign_patches
 
   foreach [who] of turtles
   [
+    ask patches [
+      set my-field (2 * (floor (pycor / my)) + (floor (pxcor / mx)))
+    ]
     ask patches with [not member? self roads
       and not member? self marketplaces
       and pxcor > x and pxcor < x + px and pycor > y and pycor < y + py]
@@ -325,13 +332,12 @@ to assign_patches
       set my-turtle tid
       ifelse perfield
       [
-        set main-crop (2 * (floor (pycor / my)) + (floor (pxcor / mx)))
-
+        set main-crop ((2 * (floor (pycor / my)) + (floor (pxcor / mx))) mod ncrops)
       ]
       [
         set main-crop cid
       ]
-      ifelse random 100 > prevailance [ ;; my crop with 90%
+      ifelse random 100 > prevalence [ ;; my crop with 90%
         set my-crop random ncrops
       ]
       [
@@ -345,7 +351,7 @@ to assign_patches
       set my-plot patches with [not member? self roads
       and not member? self marketplaces
       and pxcor > x and pxcor < x + px and pycor > y and pycor < y + py]
-      set my-plot-reference one-of my-plot
+      set my-plot-reference min-one-of my-plot [distance patch 0 0]
     ]
 
     set tid tid + 1
@@ -385,23 +391,14 @@ to-report counttypes
   report types
 end
 
-to consume-crop
-  let index 0
-  foreach crops_quantity [ x ->
-    if random 2 = 0 [
-      if ( item index crops_quantity > 0)[
-        set crops_quantity replace-item index crops_quantity (item index crops_quantity - 1)
-      ]
-      set index index + 1
-    ]
-  ]
+to consume-crop ;;eats everything
+  set crops_quantity n-values ncrops [0]
 end
 
 to balance
 ;;  set partner nobody
 ;;  set lastpartner self
 ;;  set goal "leave plot"
-  consume-crop
 
   set counter 0
   ;; check whether agent has two different types of crop
@@ -432,71 +429,93 @@ to collect
   ])
 end
 
+to-report preference
+  let index 0
+
+  foreach preferences [ [marketplace] ->
+    if item index preferences >= 10[
+      report index
+    ]
+    set index index + 1
+  ]
+
+  report -1
+
+end
+
 to move
   ifelse goal = "nothing" [
   ]
   [
     let thisturtle [id] of self
+    let objectthisturtle self
+
     ;; wants to go home
     if goal = "home" [
-      if (member? patch-here my-plot) [ ;; is home already
+      ifelse (member? patch-here my-plot) [ ;; is home already
+        consume-crop
         collect
+        set next_marketplace preference
+        if (next_marketplace = -1)[
+          set next_marketplace [my-field] of patch-here
+        ]
+
         set goal "leave plot"
       ]
+      [
 
-      if (any? neighbors with [my-turtle = [id] of myself]) [ ;; is near home
-        let choice min-one-of patches with [my-turtle = thisturtle] [distance min-one-of patches with [my-turtle = thisturtle] [distance myself]]
-        move-to choice
-        ;;face one-of neighbors with [my-turtle = [id] of myself]
-      ]
+        ifelse (any? neighbors with [my-turtle = [id] of myself]) [ ;; is near home
+          move-to min-one-of neighbors with [my-turtle = [id] of objectthisturtle] [distance myself]
+          face one-of neighbors with [my-turtle = [id] of myself]
+        ]
+        [
+          if (member? patch-here marketplaces and not member? patch-here roads)[ ;; is at a marketplace
+            show "leaving marketplace"
+            move-to min-one-of roads [distance myself] ;; go to road
+            set atmarketplace 0
+          ]
 
-      if (member? patch-here marketplaces)[ ;; is at a marketplace
-        show "leaving marketplace"
-        move-to min-one-of (roads with [pcolor = red]) [distance min-one-of (roads with [pcolor = red]) [distance myself]] ;; go to road
-        let choices neighbors with [pcolor = red]
-
-        face min-one-of choices [distance myself]
-        set atmarketplace 0
-      ]
-
-      if (member? patch-here roads with [pcolor = red]) [ ;; is in a road
-        let choices neighbors with [pcolor = red or pcolor = blue]
-        face min-one-of choices [distance [my-plot-reference] of myself]
+          if (member? patch-here roads) [ ;; is on a road
+            let choices neighbors with [member? self roads]
+            face min-one-of choices [distance [my-plot-reference] of myself]
+          ]
+        ]
       ]
     ]
 
     ;; wants to leave home
-    if goal = "leave plot"
-    [ifelse member? patch-here my-plot ;; is still at home
-      [
-        let choices neighbors
-        face min-one-of choices [distance min-one-of roads [distance myself]]
-      ]
-      [ ;; has left
-        set goal "socialize"
-        ifelse (floor(pxcor mod (px)) = 0 ) and (floor(pycor mod (py)) = 0 )
-        [
-          set heading one-of [0 90 180 270]
-        ]
-        [
-          ifelse floor(pxcor mod (px)) = 0 ;; horizontal
-          [ set heading one-of [0 180] ]
-          [ set heading one-of [90 270] ]
-        ]
-      ]
+    if goal = "leave plot" [
+      move-to min-one-of roads [distance  myself]
+      set goal "marketplace"
+      face min-one-of neighbors with [member? self roads] [distance one-of marketplaces with [member? self roads and my-field = [next_marketplace] of objectthisturtle]]
     ]
 
+
     if goal = "marketplace"[ ;; wants to go to a marketplace
-      ifelse (not member? patch-here marketplaces)[
-        let choices neighbors with [pcolor = red or pcolor = blue]
-        if count choices = 0 [
-          set choices neighbors
-        ]
-        face min-one-of choices [distance min-one-of marketplaces [distance myself]]
+      ifelse (member? patch-here marketplaces and [my-field] of patch-here = next_marketplace)[
+        show "arrived"
+        set atmarketplace 0
+        set goal "socialize"
       ]
       [
-        set goal "stay-marketplace"
-        set marketplace-time 10
+        ifelse ((one-of neighbors with [pcolor = blue and my-field = [next_marketplace] of objectthisturtle]) != NOBODY)[ ;;is near the target marketplace
+          move-to one-of neighbors with [pcolor = blue and my-field = [next_marketplace] of objectthisturtle]
+          show "arrived"
+          set atmarketplace 0
+          set goal "socialize"
+          face min-one-of neighbors with [member? self marketplaces] [distance myself]
+        ]
+        [
+
+          let choices neighbors with [member? self roads]
+          if count choices = 0 [
+            move-to min-one-of (roads) [distance myself] ;; go to road
+            set choices neighbors
+            show "trying to leave"
+          ]
+
+          face min-one-of choices [distance one-of roads with [pcolor = blue and my-field = ([next_marketplace] of objectthisturtle)]]
+        ]
       ]
     ]
 
@@ -508,6 +527,7 @@ to move
           set marketplace-time 10
         ]
         ifelse marketplace-time > 0 [
+          show "staying"
           set marketplace-time marketplace-time - 1
           let choices neighbors with [pcolor = blue]
           ifelse (count choices = 0)[
@@ -519,11 +539,16 @@ to move
         ]
         [ ;; should leave and find a road
           show "leave"
+          set preferences replace-item next_marketplace preferences ((item next_marketplace preferences) - 1)
+
           move-to min-one-of (roads with [pcolor = red]) [distance min-one-of (roads with [pcolor = red]) [distance myself]] ;; go to road
           let choices neighbors with [pcolor = red]
 
           face min-one-of choices [distance myself]
           set atmarketplace 0
+
+          set next_marketplace ((next_marketplace + 1) mod (grid-x * grid-y))
+          set goal "marketplace"
         ]
 
       ]
@@ -538,6 +563,7 @@ to move
     fd 1
 
   ]
+
 
 end
 @#$#@#$#@
@@ -626,7 +652,7 @@ nfields-y
 nfields-y
 1
 4
-3.0
+2.0
 1
 1
 NIL
@@ -641,7 +667,7 @@ marketplace-size
 marketplace-size
 0
 8
-4.0
+2.0
 2
 1
 NIL
@@ -736,7 +762,7 @@ typesofcrops
 typesofcrops
 1
 10
-10.0
+4.0
 1
 1
 NIL
@@ -747,8 +773,8 @@ SLIDER
 390
 187
 423
-prevailance
-prevailance
+prevalence
+prevalence
 1
 100
 100.0
