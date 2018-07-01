@@ -21,7 +21,13 @@ globals
 
   ncrops
   crops_color
+
+  counter_preferences
   counter_marketplaces
+  total_trades
+  total_contact
+  total_rounds
+
 ]
 turtles-own
 [
@@ -40,6 +46,7 @@ turtles-own
   best_marketplace
   next_marketplace
   nround
+  satisfied?
 
 ]
 
@@ -81,6 +88,7 @@ end
 to go
   if (ticks > 0 and ticks mod ticksperday = 0)
   [
+    stop
     if count turtles = 0 [
       stop
     ]
@@ -119,8 +127,12 @@ to go-turtles
       ]
       set partner nobody
     ]
-    if (counttypes >= 3)[ ;; can go home
+    ifelse (counttypes >= 3)[ ;; can go home
+      set satisfied? true
       set goal "home"
+    ]
+    [
+      set satisfied? false
     ]
     move
   ]
@@ -155,7 +167,11 @@ to setup-globals
   set counter_id 0
   set ticksperday ticks/day
   set days 0
-  set counter_marketplaces (count turtles)
+  set counter_marketplaces 0
+  set counter_preferences 0
+  set total_trades 0
+  set total_contact 0
+  set total_rounds 0
   set ncrops typesofcrops
   set crops_color [133 123 113 102 97 35 135 131 24 46 1 52 16]
 
@@ -204,6 +220,7 @@ to setup-agents ;; turtle procedure
   set atmarketplace 0
   set crops_quantity n-values ncrops [0]
   set preferences n-values (grid-x * grid-y) [[]]
+  set satisfied? false
 
   let index 0
   foreach preferences  [
@@ -239,6 +256,7 @@ to talk
 end
 
 to trade
+  set total_contact total_contact + 1
   set socialization socialization + 2
   ask partner [
     set socialization socialization + 2
@@ -250,12 +268,12 @@ to trade
     [x y] -> if (y = 0 and x > 1) or (x = 0 and y > 1) ;; we should trade
     [
       set i temp
-      if random 2 = 0 [stop]
     ]
     set temp temp + 1
   ])
 
   if i != -1 [
+    set total_trades total_trades + 1
     set marketplace-time marketplace-time + 10
     let quantity item i crops_quantity
 
@@ -269,6 +287,10 @@ to trade
         ;; add to other's preference
 
         let newprefofmarketplace replace-item i (item next_marketplace preferences) (item i (item next_marketplace preferences) + 1)
+        if (item i (item next_marketplace preferences) = 10) [
+           set newprefofmarketplace replace-item i (item next_marketplace preferences) 20
+        ]
+
         set preferences replace-item next_marketplace preferences newprefofmarketplace
       ]
 
@@ -282,6 +304,10 @@ to trade
 
       ;; add to my preference
       let newprefofmarketplace replace-item i (item next_marketplace preferences) (item i (item next_marketplace preferences) + 1)
+      if (item i (item next_marketplace preferences) = 10) [
+        set newprefofmarketplace replace-item i (item next_marketplace preferences) 20
+      ]
+
       set preferences replace-item next_marketplace preferences newprefofmarketplace
 
       ;; reduce quantity from other's crop
@@ -409,6 +435,7 @@ to-report preference ;; finds preferable marketplace
     if crop = 0 [
       foreach preferences [ [marketplace] ->
         if item index (item j preferences) >= 10 [
+          set counter_preferences counter_preferences + 1
           report j
         ]
         set j j + 1
@@ -442,6 +469,7 @@ to move
 
         set goal "leave plot"
         set nround nround + 1
+        set total_rounds total_rounds + 1
       ]
       [
 
@@ -526,7 +554,18 @@ to move
 
           foreach crops_quantity [ crop ->
             if crop = 0 [
-              let newprefofmarketplace replace-item i (item next_marketplace preferences) (item i (item next_marketplace preferences) - 1)
+              let newprefofmarketplace item next_marketplace preferences
+
+              if item i (item next_marketplace preferences) > 0
+              [
+                set newprefofmarketplace replace-item i (item next_marketplace preferences) (item i (item next_marketplace preferences) - 1)
+              ]
+
+              if item i (item next_marketplace preferences) <= 10
+              [
+                set newprefofmarketplace replace-item i (item next_marketplace preferences) 0
+              ]
+
               set preferences replace-item next_marketplace preferences newprefofmarketplace
             ]
             set i (i + 1)
@@ -538,9 +577,17 @@ to move
           face min-one-of choices [distance myself]
           set atmarketplace 0
 
-          set next_marketplace ((next_marketplace + 1) mod (grid-x * grid-y))
+          let p preference
+
+          ifelse p = -1
+          [
+            set next_marketplace ((next_marketplace + 1) mod (grid-x * grid-y))
+          ]
+          [
+            set next_marketplace p
+          ]
+
           set goal "marketplace"
-          set counter_marketplaces counter_marketplaces + 1
         ]
 
       ]
@@ -712,6 +759,8 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot count turtles"
+"preferences" 1.0 0 -7500403 true "" "plot counter_preferences"
+"pen-2" 1.0 0 -2674135 true "" "plot counter_marketplaces"
 
 INPUTBOX
 20
@@ -719,7 +768,7 @@ INPUTBOX
 80
 125
 ticks/day
-1000.0
+20000.0
 1
 0
 Number
@@ -770,7 +819,7 @@ PLOT
 170
 820
 320
-Marketplaces per round
+choosing marketplace by preference
 NIL
 NIL
 0.0
@@ -781,7 +830,10 @@ true
 false
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot counter_marketplaces"
+"turtles" 1.0 0 -16777216 true "" "plot count turtles"
+"rounds" 1.0 0 -2674135 true "" "plot total_rounds / count turtles"
+"trades" 1.0 0 -955883 true "" "plot total_trades / count turtles"
+"pen-5" 1.0 0 -1184463 true "" "plot count turtles with [satisfied? = true]"
 
 @#$#@#$#@
 ## WHAT IS IT?
